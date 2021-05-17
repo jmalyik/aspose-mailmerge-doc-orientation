@@ -1,6 +1,5 @@
 package hu.example.aspose;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -48,8 +47,6 @@ public class DocumentMailMergeAspose
     public static class MergeContext {
         private final Map<String, Object> variables;
         private Map<String, String> files;
-        private Map<String, byte[]> fileBytes;
-        private boolean fileMode;
         // default merge options below
         private boolean removeComments = true;
         private boolean mergeDuplicatedRegions = false;
@@ -66,21 +63,10 @@ public class DocumentMailMergeAspose
             this.variables = variables;
         }
         
-        public static MergeContext createMergeContextWithBytes(Map<String, Object> variables, Map<String, byte[]> fileBytes)
-        {
-            MergeContext context = new MergeContext(variables);
-            context.files = null;
-            context.fileBytes = fileBytes;
-            context.fileMode = false;
-            return context;
-        }
-        
         public static MergeContext createMergeContextWithFiles(Map<String, Object> variables, Map<String, String> files)
         {
             MergeContext context = new MergeContext(variables);
             context.files = files;
-            context.fileBytes = null;
-            context.fileMode = true;
             return context;
         }
     }
@@ -159,32 +145,19 @@ public class DocumentMailMergeAspose
                     importFormatMode = ImportFormatMode.KEEP_DIFFERENT_STYLES;
                     importFormatString = "Keeping different styles";
                 }
-                if(mergeContext.fileMode){
-                    String realFile = mergeContext.files.get(fileName);
-                    if(realFile != null){
-                        File file = new File(realFile);
-                        if(file.exists() && file.isFile()){
-                            LOGGER.debug("Using " + realFile + " for " + fieldName + ".\t" + importFormatString);
-                            Document documentToMerge = new Document(realFile);  
-                            builder.insertDocument(documentToMerge, importFormatMode);
-                        }else{
-                            LOGGER.warn("Attachment " + fieldName + " in config points to " + realFile + " that is either does not exist or not a file!");
-                        }
+                String realFile = mergeContext.files.get(fileName);
+                if(realFile != null){
+                    File file = new File(realFile);
+                    if(file.exists() && file.isFile()){
+                        LOGGER.debug("Using " + realFile + " for " + fieldName + ".\t" + importFormatString);
+                        Document documentToMerge = new Document(realFile);  
+                        builder.insertDocument(documentToMerge, importFormatMode);
                     }else{
-                        LOGGER.warn("Attachment " + fieldName + " missing from configuration!");
+                        LOGGER.warn("Attachment " + fieldName + " in config points to " + realFile + " that is either does not exist or not a file!");
                     }
                 }else{
-                    byte[] fileContent = mergeContext.fileBytes.get(fileName);
-                    if(fileContent != null){
-                        LOGGER.debug("Using byteArray for " + fileName + ".\t" + importFormatString);
-                        try(ByteArrayInputStream bis = new ByteArrayInputStream(fileContent)){
-                            Document documentToMerge = new Document(bis);
-                            builder.insertDocument(documentToMerge, importFormatMode);
-                        }
-                    }else{
-                        LOGGER.warn("Attachment " + fieldName + " missing from configuration!");
-                    }
-                }
+                    LOGGER.warn("Attachment " + fieldName + " missing from configuration!");
+                } 
             }else{
                 LOGGER.trace("FieldMerging ignored for " + fieldName + " (field is not mapped to an attachment)");
             }
@@ -251,86 +224,6 @@ public class DocumentMailMergeAspose
         }
     }
 
-    /**
-     * backward compatibility
-     * the same signature and working as the generateDocumentMailMerge in {@link DocumentMailMerge} 
-     * 
-     * @param templateDocAsByteArray
-     * @param attachments
-     * @param variables
-     * @return
-     * @throws Exception
-     */
-    public byte[] generateDocumentMailMerge(byte[] templateDocAsByteArray, Map<String, List<byte[]>> attachments, Map<String, Object> variables) throws Exception{
-        return generateDocumentMailMerge(templateDocAsByteArray, attachments, variables, DocumentFormat.PDF);
-    }
-    /**
-     * backward compatibility
-     * the same signature and working as the generateDocumentMailMerge in {@link DocumentMailMerge} 
-     * 
-     * @param templateDocAsByteArray
-     * @param attachments
-     * @param variables
-     * @param targetFormat
-     * @return
-     * @throws Exception
-     */
-    public byte[] generateDocumentMailMerge(byte[] templateDocAsByteArray, Map<String, List<byte[]>> attachments, Map<String, Object> variables, DocumentFormat targetFormat) throws Exception{
-        return generateDocumentMailMerge(templateDocAsByteArray, createMergeContext(attachments, variables), targetFormat);
-    }
-
-    public byte[] generateDocumentMailMerge(byte[] templateDocAsByteArray, MergeContext mergeContext, DocumentFormat targetFormat) throws Exception{
-        try(ByteArrayInputStream templateStream = new ByteArrayInputStream(templateDocAsByteArray)){
-            return mergeInternal(templateStream, targetFormat, mergeContext);
-        }
-    }
-    
-    /**
-     * to be able to update the default merge options, the MergeContext is accessible via this method
-     * after updating it, you can call the generateDocumentMailMerge with the updated mergeContext
-     * like this method generateDocumentMailMerge(byte[] templateDocAsByteArray, MergeContext mergeContext, DocumentFormat targetFormat) 
-     * @param attachments
-     * @param variables
-     * @return
-     */
-    public MergeContext createMergeContext(Map<String, List<byte[]>> attachments, Map<String, Object> variables)
-    {
-        /**
-         *  here the attachments will be replaced by their key (mergefield name), 
-         *  there is no magic with attachment lists
-         */
-        Map<String, byte[]> fileBytes = new HashMap<>();
-        attachments.entrySet().forEach(e -> {
-            if(e.getValue().size() == 1){
-                fileBytes.put(e.getKey(), e.getValue().get(0));
-            }else{
-                e.getValue().forEach(attachment -> {
-                    int index = e.getValue().indexOf(attachment);
-                    fileBytes.put(e.getKey() + "[" + index + "]", attachment);
-                });
-            }
-        });
-        /**
-         * this merger expects array variables in this form: variable.<index>=<value>
-         * but, this method get it in this way: variable=<list of values>
-         */
-        Map<String, Object> flattenedVariables = new HashMap<>();
-        System.out.println(variables);
-        variables.entrySet().forEach(e -> {
-            if(e.getValue() instanceof List){
-                List<?> list = (List<?>) e.getValue();
-                list.forEach(item -> {
-                    int index = list.indexOf(item);
-                    flattenedVariables.put(e.getKey() + "." + index, item);
-                });
-            }else{
-                flattenedVariables.put(e.getKey(), e.getValue());
-            }
-        });
-        MergeContext mergeContext = MergeContext.createMergeContextWithBytes(flattenedVariables, fileBytes);
-        return mergeContext;
-    }
-    
     public byte[] mergeInternal(InputStream templateStream, DocumentFormat targetFormat, MergeContext mergeContext) throws Exception{
         
         if(LOGGER.isDebugEnabled()){
@@ -339,11 +232,7 @@ public class DocumentMailMergeAspose
             mergeContext.variables.keySet().forEach(key -> LOGGER.debug(key + "=" + mergeContext.variables.get(key)));
             LOGGER.debug("");
             LOGGER.debug("attachments: ");
-            if(mergeContext.fileMode){
-                mergeContext.files.keySet().forEach(key -> LOGGER.debug(key + "=" + mergeContext.files.get(key)));
-            }else{
-                mergeContext.fileBytes.keySet().forEach(key -> LOGGER.debug(key + "=" + mergeContext.fileBytes.get(key).length + " bytes"));
-            }
+            mergeContext.files.keySet().forEach(key -> LOGGER.debug(key + "=" + mergeContext.files.get(key)));
             LOGGER.debug("");
         }
         
