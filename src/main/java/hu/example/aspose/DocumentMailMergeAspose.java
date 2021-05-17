@@ -39,6 +39,8 @@ import com.aspose.words.ref.Ref;
 
 public class DocumentMailMergeAspose
 {
+    private static final String ASPOSE_WORDS_JAVA_LIC_FILE = "Aspose.Words.Java.lic";
+
     private static final Logger LOGGER = Logger.getLogger(DocumentMailMergeAspose.class);
     
     public static final String JVM_ARG_CONFIGFILE = "mergeConfig";
@@ -104,9 +106,11 @@ public class DocumentMailMergeAspose
                 throw new IOException("License file " + licenseFileName + " does not exists or it is not file!");
             }
         }else{
-            try(InputStream stream = DocumentMailMergeAspose.class.getClassLoader().getResourceAsStream("Aspose.Words.Java.lic")){
-                License lic = new License();
-                lic.setLicense(stream);     
+            if(DocumentMailMergeAspose.class.getResource(ASPOSE_WORDS_JAVA_LIC_FILE) != null){
+                try(InputStream stream = DocumentMailMergeAspose.class.getClassLoader().getResourceAsStream(ASPOSE_WORDS_JAVA_LIC_FILE)){
+                    License lic = new License();
+                    lic.setLicense(stream);     
+                }
             }
         }
     };
@@ -150,7 +154,8 @@ public class DocumentMailMergeAspose
                     File file = new File(realFile);
                     if(file.exists() && file.isFile()){
                         LOGGER.debug("Using " + realFile + " for " + fieldName + ".\t" + importFormatString);
-                        Document documentToMerge = new Document(realFile);  
+                        Document documentToMerge = new Document(realFile);
+                        AsposeDocumentFontProcessor.removeUnknownFonts(documentToMerge, importFormatMode);
                         builder.insertDocument(documentToMerge, importFormatMode);
                     }else{
                         LOGGER.warn("Attachment " + fieldName + " in config points to " + realFile + " that is either does not exist or not a file!");

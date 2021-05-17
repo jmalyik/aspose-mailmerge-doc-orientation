@@ -6,16 +6,44 @@ import org.junit.Test;
 public class DocumentMailMergeAsposeTest
 {    
     /**
-     * the code throws here (but this is not desired)
-     * org.apache.xmlbeans.impl.values.XmlValueDisconnectedException
-     * at org.apache.xmlbeans.impl.values.XmlObjectBase.check_orphaned(XmlObjectBase.java:1258)
-     * because the template contains w:fldSimple instead of w:fldChar and w:instrText
+     * here we expects that the subject.docx will be merged with ImportFormatMode.USE_DESTINATION_STYLES
+     * (Using destination formatting) -> the expected font should be the default Arial
+     * 
+     * This test can be used to test whether the first attachment mergefield (Attachment[0]) orientation is kept or not
      */
     @Test
-    public void testOrientation(){
+    public void testSubjectHasStar(){
         try
         {
             System.setProperty(DocumentMailMergeAspose.JVM_ARG_CONFIGFILE, "src/test/resources/testConfig.properties");
+            DocumentMailMergeAspose merger = new DocumentMailMergeAspose();
+            merger.merge();
+        } catch (Exception e)
+        {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testSubjectPlain(){
+        try
+        {
+            System.setProperty(DocumentMailMergeAspose.JVM_ARG_CONFIGFILE, "src/test/resources/testConfig_plain.properties");
+            DocumentMailMergeAspose merger = new DocumentMailMergeAspose();
+            merger.merge();
+        } catch (Exception e)
+        {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
+    }
+    
+    @Test
+    public void testSubjectHashmarked(){
+        try
+        {
+            System.setProperty(DocumentMailMergeAspose.JVM_ARG_CONFIGFILE, "src/test/resources/testConfig_hashmarked.properties");
             DocumentMailMergeAspose merger = new DocumentMailMergeAspose();
             merger.merge();
         } catch (Exception e)
