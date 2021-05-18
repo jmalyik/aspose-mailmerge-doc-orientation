@@ -10,6 +10,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -24,6 +25,7 @@ import java.util.regex.Pattern;
 
 import org.apache.log4j.Logger;
 
+import com.aspose.words.BreakType;
 import com.aspose.words.Document;
 import com.aspose.words.DocumentBuilder;
 import com.aspose.words.FieldMergingArgs;
@@ -35,6 +37,9 @@ import com.aspose.words.License;
 import com.aspose.words.MailMergeCleanupOptions;
 import com.aspose.words.NodeCollection;
 import com.aspose.words.NodeType;
+import com.aspose.words.Orientation;
+import com.aspose.words.PageSetup;
+import com.aspose.words.Section;
 import com.aspose.words.ref.Ref;
 
 public class DocumentMailMergeAspose
@@ -50,11 +55,11 @@ public class DocumentMailMergeAspose
         private final Map<String, Object> variables;
         private Map<String, String> files;
         // default merge options below
-        private boolean removeComments = true;
+        private boolean removeComments = false;
         private boolean mergeDuplicatedRegions = false;
-        private boolean updateFields = true;
-        private boolean acceptAllRevisions = true;
-        private boolean removeUnusedFields = true;
+        private boolean updateFields = false;
+        private boolean acceptAllRevisions = false;
+        private boolean removeUnusedFields = false;
 
         /**
          * I had to create factory methods because of the type erasure in constructors
@@ -70,6 +75,37 @@ public class DocumentMailMergeAspose
             MergeContext context = new MergeContext(variables);
             context.files = files;
             return context;
+        }
+
+        public Object[] buildVariableValueArrayUsingFieldNames(String[] fieldNames)
+        {
+            Object[] values = new Object[fieldNames.length];
+            for(int i = 0; i < fieldNames.length; i++){
+                String fieldName = fieldNames[i];
+                if(SourceFileNameFilter.INSTANCE.accept(null, fieldName)){
+                    String fieldNameWithoutMarks = SourceFileNameFilter.INSTANCE.getFieldNameWithoutMarks(fieldName);
+                    if(this.files.containsKey(fieldNameWithoutMarks)){
+                        String fileName = this.files.get(fieldNameWithoutMarks);
+                        try(InputStream is = new FileInputStream(new File(fileName))){
+                            values[i] = new Document(is);
+                            LOGGER.debug("FileNameField: " + fieldName + " = " + fileName);
+                            continue;
+                        } catch (Exception e)
+                        {
+                            LOGGER.error("Error while reading " + fileName, e);
+                        }
+                        LOGGER.debug("FileNameField: " + fieldName + " = null (1)");
+                        values[i] = null;
+                    }else{
+                        LOGGER.debug("FileNameField: " + fieldName + " = null (2)");
+                        values[i] = null;
+                    }
+                }else{
+                    values[i] = this.variables.get(fieldName);
+                    LOGGER.debug("VariableField: " + fieldName + " = " + values[i]);
+                }
+            }
+            return values;
         }
     }
     
@@ -97,6 +133,7 @@ public class DocumentMailMergeAspose
         String licenseFileName = System.getProperty(JVM_ARG_ASPOSELICENSEFILE);
         if(licenseFileName != null){
             File licenseFile = new File(licenseFileName);
+            LOGGER.debug("Using license file " + licenseFileName);
             if(licenseFile.exists() && licenseFile.isFile()){
                 try(InputStream stream = new FileInputStream(licenseFile)){
                     License lic = new License();
@@ -106,11 +143,9 @@ public class DocumentMailMergeAspose
                 throw new IOException("License file " + licenseFileName + " does not exists or it is not file!");
             }
         }else{
-            if(DocumentMailMergeAspose.class.getResource(ASPOSE_WORDS_JAVA_LIC_FILE) != null){
-                try(InputStream stream = DocumentMailMergeAspose.class.getClassLoader().getResourceAsStream(ASPOSE_WORDS_JAVA_LIC_FILE)){
-                    License lic = new License();
-                    lic.setLicense(stream);     
-                }
+            try(InputStream stream = DocumentMailMergeAspose.class.getClassLoader().getResourceAsStream(ASPOSE_WORDS_JAVA_LIC_FILE)){
+                License lic = new License();
+                lic.setLicense(stream);     
             }
         }
     };
@@ -118,21 +153,11 @@ public class DocumentMailMergeAspose
 
     public static class DocumentMergingCallback implements IFieldMergingCallback{
 
-        private final MergeContext mergeContext;
-        
-        public DocumentMergingCallback(MergeContext mergeContext){
-            this.mergeContext = mergeContext;
-        }
-        
         @Override
         public void fieldMerging(FieldMergingArgs fieldMergingArgs) throws Exception
         {
             String fieldName = fieldMergingArgs.getFieldName();
-            
-            if (fieldName.endsWith("docx")||
-                fieldName.endsWith("docx*") ||
-                fieldName.endsWith("docx#") ||
-                fieldName.startsWith("Attachment")) {
+            if (SourceFileNameFilter.INSTANCE.accept(null, fieldName)) {
                 
                 DocumentBuilder builder = new DocumentBuilder(fieldMergingArgs.getDocument());
                 builder.moveToMergeField(fieldName);
@@ -149,23 +174,43 @@ public class DocumentMailMergeAspose
                     importFormatMode = ImportFormatMode.KEEP_DIFFERENT_STYLES;
                     importFormatString = "Keeping different styles";
                 }
-                String realFile = mergeContext.files.get(fileName);
-                if(realFile != null){
-                    File file = new File(realFile);
-                    if(file.exists() && file.isFile()){
-                        LOGGER.debug("Using " + realFile + " for " + fieldName + ".\t" + importFormatString);
-                        Document documentToMerge = new Document(realFile);
-                        AsposeDocumentFontProcessor.removeUnknownFonts(documentToMerge, importFormatMode);
-                        builder.insertDocument(documentToMerge, importFormatMode);
-                    }else{
-                        LOGGER.warn("Attachment " + fieldName + " in config points to " + realFile + " that is either does not exist or not a file!");
-                    }
-                }else{
-                    LOGGER.warn("Attachment " + fieldName + " missing from configuration!");
-                } 
+                LOGGER.debug("---> " + fieldName + " " + importFormatString);
+                Document documentToMerge = (Document)fieldMergingArgs.getFieldValue();
+                AsposeDocumentFontProcessor.removeUnknownFonts(documentToMerge);
+                builder.insertDocument(documentToMerge, ImportFormatMode.KEEP_SOURCE_FORMATTING);
+                copyPageSetup(builder, documentToMerge);
+                if(hasDifferentOrientationOrWidth(builder.getCurrentSection(), documentToMerge.getFirstSection())){
+                    builder.insertBreak(BreakType.SECTION_BREAK_NEW_PAGE); 
+                }
+                LOGGER.debug(fieldName + " inserting done");
             }else{
                 LOGGER.trace("FieldMerging ignored for " + fieldName + " (field is not mapped to an attachment)");
             }
+        }
+
+        private void copyPageSetup(DocumentBuilder builder, Document documentToMerge)
+        {
+            PageSetup documentToMergePageSetup = documentToMerge.getFirstSection().getPageSetup();
+            PageSetup templateCurrentSectionPageSetup = builder.getCurrentSection().getPageSetup();
+            templateCurrentSectionPageSetup.setOrientation(documentToMergePageSetup.getOrientation());
+            LOGGER.debug("Set orientation: " + Orientation.getName(documentToMergePageSetup.getOrientation()));
+            templateCurrentSectionPageSetup.setPageHeight(documentToMergePageSetup.getPageHeight());
+            LOGGER.debug("Set page height: " + documentToMergePageSetup.getPageHeight());
+            templateCurrentSectionPageSetup.setPageWidth(documentToMergePageSetup.getPageWidth());
+            LOGGER.debug("Set page width: " + documentToMergePageSetup.getPageWidth());
+        }
+
+        private boolean hasDifferentOrientationOrWidth(Section templateSection, Section documentToMergeSection)
+        {
+            if(templateSection.getPageSetup().getOrientation() != documentToMergeSection.getPageSetup().getOrientation()){
+                LOGGER.debug("Different orientation -> add section (page) break");
+                return true;
+            }
+            if(templateSection.getPageSetup().getPageWidth() != documentToMergeSection.getPageSetup().getPageWidth()){
+                LOGGER.debug("Different page width -> add section (page) break");
+                return true;
+            }
+            return false;
         }
 
         @Override
@@ -243,6 +288,31 @@ public class DocumentMailMergeAspose
         
         Document outputDoc = new Document(templateStream);
 
+        outputDoc.getMailMerge().setFieldMergingCallback(new DocumentMergingCallback());
+        List<IMailMergeDataSource> tableDataSources = createMailMergeDataSources(mergeContext);
+        
+        for(IMailMergeDataSource ds : tableDataSources){
+            outputDoc.getMailMerge().executeWithRegions(ds);
+        }
+        
+        String[] fieldNames = outputDoc.getMailMerge().getFieldNames();
+        String[] fileFieldNames = new String[mergeContext.files.keySet().size()];
+        int i = 0;
+        for(String fieldName : fieldNames){
+            if(SourceFileNameFilter.INSTANCE.accept(null, fieldName)){
+                fileFieldNames[i] = fieldName;
+                i++;    
+            }
+        }
+        
+        LOGGER.debug(mergeContext.files.keySet());
+        Object[] values = mergeContext.buildVariableValueArrayUsingFieldNames(fileFieldNames);
+        LOGGER.debug(Arrays.asList(values));
+        outputDoc.getMailMerge().execute(
+                fileFieldNames, //fieldNames,
+                values
+                );
+        
         // this row below is needed to be able to remove the template (first) row that will be empty after the merge 
         outputDoc.getMailMerge().setCleanupOptions(MailMergeCleanupOptions.REMOVE_EMPTY_TABLE_ROWS);
         if(mergeContext.removeUnusedFields ){
@@ -260,17 +330,6 @@ public class DocumentMailMergeAspose
         }
         outputDoc.getMailMerge().setMergeDuplicateRegions(mergeContext.mergeDuplicatedRegions);
         
-        DocumentMergingCallback fieldMergingCallback = new DocumentMergingCallback(mergeContext);
-        outputDoc.getMailMerge().setFieldMergingCallback(fieldMergingCallback);
-        List<IMailMergeDataSource> tableDataSources = createMailMergeDataSources(mergeContext);
-        
-        for(IMailMergeDataSource ds : tableDataSources){
-            outputDoc.getMailMerge().executeWithRegions(ds);
-        }
-        outputDoc.getMailMerge().execute(
-                mergeContext.variables.keySet().toArray(new String[mergeContext.variables.size()]),
-                mergeContext.variables.values().toArray(new Object[mergeContext.variables.size()])
-                );
         
         if(mergeContext.removeComments){
             LOGGER.debug("Comments will be removed.");
@@ -291,10 +350,10 @@ public class DocumentMailMergeAspose
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         if (DocumentFormat.DOCX.equals(targetFormat))
         {
-            outputDoc.save(bos,new com.aspose.words.OoxmlSaveOptions());
+            outputDoc.save(bos, new com.aspose.words.OoxmlSaveOptions());
         } else
         {
-            outputDoc.save(bos,new com.aspose.words.PdfSaveOptions());
+            outputDoc.save(bos, new com.aspose.words.PdfSaveOptions());
         }
         return bos.toByteArray();        
     }

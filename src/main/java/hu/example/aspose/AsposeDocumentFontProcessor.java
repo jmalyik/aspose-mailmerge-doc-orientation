@@ -6,7 +6,6 @@ import org.apache.log4j.Logger;
 
 import com.aspose.words.Document;
 import com.aspose.words.Font;
-import com.aspose.words.ImportFormatMode;
 import com.aspose.words.NodeCollection;
 import com.aspose.words.NodeType;
 import com.aspose.words.Paragraph;
@@ -20,9 +19,9 @@ public class AsposeDocumentFontProcessor
 {
     private static final Logger LOGGER = Logger.getLogger(AsposeDocumentFontProcessor.class);
     
-    public static void removeUnknownFonts(Document documentToMerge, int importFormatMode)
+    public static void removeUnknownFonts(Document documentToMerge)
     {
-        if(importFormatMode != ImportFormatMode.USE_DESTINATION_STYLES){
+        if(documentToMerge == null){
             return;
         }
         
